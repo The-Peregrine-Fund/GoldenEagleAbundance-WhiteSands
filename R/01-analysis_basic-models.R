@@ -50,7 +50,7 @@ datalfoc$YR <- 3
 # print sample sizes 
 apply(ab2[,1:2,,,dimnames(ab2)[[5]] %in% spp.list.foc], c(5), sum, na.rm=T)
 
-# Subset data to species=Yellow-bellied flycatcher spp.list.foc[2]
+# Subset data to species=Bay breasted Warbler
 spp <- spp.list.foc[1]
 spp.num<- which(dimnames(nobs)[[3]]==spp)
 Nav <- apply(ab2[,1:2,,,spp], c(1,4), sum, na.rm=T)
@@ -84,7 +84,7 @@ datalist$nvisits <- 3
 datalist$nR <- datalfoc$R
 # Examine full dataset
 str(datalist)
-# These two should be equal to the number of detections
+# These two (below) should be equal to the number of detections
 # and each other. Not quite the case here.
 # But do better than I did! 
 length(datalist$int)
