@@ -1,0 +1,62 @@
+
+    model {
+    ##### PRIORS ###############################################
+    pa.beta <- logit(p.pa.beta) # backtransform to probability
+    p.pa.beta ~ dbeta(1, 1) # probability of availability
+    pem.beta <- logit(pem.beta) # backtransform to probability
+    pem.beta ~ dbeta(1, 1) # probability of emigration
+    psi.beta <- logit(p.psi.beta) # backtransform to probability
+    p.psi.beta ~ dbeta(1, 1) probability of habitat suitability
+    lam.beta ~ dnorm(0, 0.01) # abundance log scale
+    
+    ##### REMOVAL #####################################
+    # Removal submodel
+    for (l in 1:L) {
+    int[l] ~ dcat(pi.pa.c[site[l], visit[l], yr[l], ]) # removal class frequencies
+    } # L
+    
+    for (i in 1:nsites) {
+    for (j in 1:nvisits) {
+    for (t in 1:YR) {
+    for (r in 1:R){
+    pi.pa[i,j,t,r] <- p.a[i,j,t]*pow(1-p.a[i,j,t], (r-1))
+    pi.pa.c[i,j,t,r] <- pi.pa[i,j,t,r] / pcap[i,j,t]
+    }  #R
+    pcap[i,j,t] <- sum(pi.pa[i,j,t,1:R])
+    
+    # Detection submodels 
+    pmarg[i,j,t] <-  pcap[i,j,t]  * pem[i,j,t]
+    logit(p.a[i,j,t]) <- pa.beta # add covariates for availability (time-removal) here
+    logit(pem[i,j,t]) <- pem.beta
+    
+    ##### POINT-LEVEL ABUNDANCE ###########################
+    # Abundance/suitability submodels
+    # N is the abundance which includes any GOEA using the site, ie emigrants
+    nobs[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t]) 
+    }}} # i j t 
+    
+    N[i,t] ~ dpois(lambda.eff[i,t])
+    lambda.eff[i,t] <- lambda[i,t] * w.lam[i,t]
+    w.lam[i,t] ~  dbern(psi[i,t])
+    log(lambda[i,t]) <- lam.beta # add covariates for abundance
+    logit(psi[i,t]) <- psi.beta # add covariates for habitat suitability
+    # If not running set inits near psi=1 on logit scale. For example psi.beta=10
+    
+    ##### GOODNESS OF FIT #######################################
+    nobs.fit[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t]) # create new realization of model
+    e.p[i,j,t] <- pmarg[i,j,t] * N[i,t] # original model prediction
+    E.p[i,j,t] <- pow((nobs[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    E.New.p[i,j,t]<- pow((nobs.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    }} #YR #nsites 
+    fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:YR])
+    fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:YR])
+    bayesp<-step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
+    
+    ##### DERIVED QUANTITIES ####################################
+    for(t in 1:YR){
+    Ntot[t] <- sum(N[1:nsites,t])
+    # You can calculate density if you have a quantifiable area of survey
+    # D[t] <- Ntot[t] / ((3.14*B*B*nsites)/10000)  # dens per ha
+    } #YR
+    } # End model
+    

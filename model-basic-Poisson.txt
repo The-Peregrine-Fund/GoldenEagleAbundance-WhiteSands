@@ -1,0 +1,59 @@
+
+    model {
+    # p.pa.beta: prob. of availability
+    # p.pem.beta: prob. of temporary emigration
+    # lam.beta: abundance (log-link scale, use exp function to backtransform)
+    ##### PRIORS ###############################################
+    pa.beta <- logit(p.pa.beta)
+    p.pa.beta ~ dbeta(1, 1)
+    pem.beta <- logit(p.pem.beta) # backtransform to probability
+    p.pem.beta ~ dbeta(1, 1) # probability of emigration
+    lam.beta ~ dnorm(0, 0.01)
+    
+    ##### REMOVAL #####################################
+    # Removal submodel
+    for (l in 1:nL) {
+    int[l] ~ dcat(pi.pa.c[site[l], visit[l], year[l], ]) # removal class frequencies
+    } # L
+
+    for (i in 1:nsites) {
+    for (t in 1:nyr) {
+    # Abundance (inserted here to reduce number of loops)
+    N[i,t] ~ dpois(lambda[i,t])
+    log(lambda[i,t]) <- lam.beta # add covariates for abundance here
+    
+    # More removal submodel
+    for (j in 1:nvisits) {
+    for (r in 1:nR){
+    pi.pa[i,j,t,r] <- p.a[i,j,t]*pow(1-p.a[i,j,t], (r-1))
+    pi.pa.c[i,j,t,r] <- pi.pa[i,j,t,r] / pcap[i,j,t]
+    }  #nR
+    pcap[i,j,t] <- sum(pi.pa[i,j,t,1:nR])
+    
+    # Detection  and emigration models 
+    pmarg[i,j,t] <-  pcap[i,j,t] * pem[i,j,t]
+    logit(p.a[i,j,t]) <- pa.beta # add covariates for availability (time-removal) here
+    logit(pem[i,j,t]) <- pem.beta # add covariates for temporary emigration
+    
+    ##### POINT-LEVEL ABUNDANCE ###########################     
+    nobs[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t])  
+
+    ##### GOODNESS OF FIT #######################################
+    nobs.fit[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t]) # create new realization of model
+    e.p[i,j,t] <- pmarg[i,j,t] * N[i,t] # original model prediction
+    E.p[i,j,t] <- pow((nobs[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    E.New.p[i,j,t]<- pow((nobs.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    }}} #nyr #nsites 
+    fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:nyr])
+    fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:nyr])
+    bayesp<-step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
+    
+    ##### DERIVED QUANTITIES ####################################
+    for(t in 1:nyr){
+    Ntot[t] <- sum(N[1:nsites,t])
+    # Can calculate density if you have a definable area of survey
+    # Example for circular point counts
+    # D[t] <- Ntot[t] / ((3.14*B*B*nsites)/10000)  # dens per ha
+    } # nyr
+    } # End model
+    
