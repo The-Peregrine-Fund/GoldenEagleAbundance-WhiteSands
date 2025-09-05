@@ -51,7 +51,7 @@ datalfoc$YR <- 3
 apply(ab2[,1:2,,,dimnames(ab2)[[5]] %in% spp.list.foc], c(5), sum, na.rm=T)
 
 # Subset data to species=Yellow-bellied flycatcher spp.list.foc[2]
-spp <- spp.list.foc[2]
+spp <- spp.list.foc[1]
 spp.num<- which(dimnames(nobs)[[3]]==spp)
 Nav <- apply(ab2[,1:2,,,spp], c(1,4), sum, na.rm=T)
 
@@ -64,9 +64,11 @@ dimnames(no) <- list(site= dimnames(Nav)[[1]],
                      year= 2013:2015)
 
 #***********************
+#* Run the above code but
 #* START HERE TOM
 #* These are all the data needed
 #* to run the model. You can add covariates. 
+#* See comments about dimensions for each data
 datalist <- list()
 datalist$nobs <- no # an array of 3 dims: nsites x nvisits x nyears
 # the following are all nL in length, ie the number of detections
@@ -82,7 +84,11 @@ datalist$nvisits <- 3
 datalist$nR <- datalfoc$R
 # Examine full dataset
 str(datalist)
-
+# These two should be equal to the number of detections
+# and each other. Not quite the case here.
+# But do better than I did! 
+length(datalist$int)
+sum(datalist$nobs, na.rm=T)
 ####################################
 # (1) basic Poisson model
 ####################################
@@ -173,7 +179,14 @@ cat("
   fn<- paste( "./", spp, "_basic-pois.RData", sep="" )
   save(list= c("out"), file=fn)
 
-
+#*********************************
+#* Below is a zero-inflated POisson
+#* model in case you have poor model fit. 
+#* I don't think we'll need this because it
+#* deals with excess zeroes and most of your 
+#* sites were occupied. 
+#* Requires modification to work 
+#********************************* 
 # ## ---- basic ZIP --------
 # # software used
 # # JAGS 4.3.0 
