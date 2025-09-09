@@ -179,147 +179,66 @@ cat("
   fn<- paste( "./", spp, "_basic-pois.RData", sep="" )
   save(list= c("out"), file=fn)
 
-#*********************************
-#* Below is a zero-inflated POisson
-#* model in case you have poor model fit. 
-#* I don't think we'll need this because it
-#* deals with excess zeroes and most of your 
-#* sites were occupied. 
-#* Requires modification to work 
-#********************************* 
-# ## ---- basic ZIP --------
-# # software used
-# # JAGS 4.3.0 
-# # R version 4.0.2 (2020-06-22) -- "Taking Off Again"
-# library (jagsUI) # v1.5.1
-# load ("./DATA.Rdata")
-# # set up data
-# datalfoc$SPP <- length(spp.list.foc)
-# yr <- array(NA, dim=c(dim (ab)[1], 9) )
-# yr[,1:3] <- 1; yr[,4:6] <- 2; yr[,7:9] <- 3
-# datalfoc$yr <- yr
-# s.year <- array(NA, dim=c(114, 9))
-# s.year[,1:3] <- 1; s.year[,4:6] <- 2; s.year[,7:9] <- 3
-# datalfoc$s.year <- s.year
-# 
-# datalfoc$ba <- datalfoc$CovsLam[, "ba"]
-# nobs <- datalfoc$nobs
-# dclass <- datalfoc$dclass
-# int <- datalfoc$int
-# site <- datalfoc$site
-# yr_rot <- datalfoc$yr_rot
-# 
-# # print sample sizes 
-# apply(ab2[,1:2,,,dimnames(ab2)[[5]] %in% spp.list.foc], c(5), sum, na.rm=T)
-# 
-# ###################################
-# # (2) basic zero-inflated Poisson model
-# ###################################
-# cat("
-#     model {
-#     ##### PRIORS ###############################################
-#     pa.beta <- logit(p.pa.beta) # backtransform to probability
-#     p.pa.beta ~ dbeta(1, 1) # probability of availability
-#     pem.beta <- logit(pem.beta) # backtransform to probability
-#     pem.beta ~ dbeta(1, 1) # probability of emigration
-#     psi.beta <- logit(p.psi.beta) # backtransform to probability
-#     p.psi.beta ~ dbeta(1, 1) probability of habitat suitability
-#     lam.beta ~ dnorm(0, 0.01) # abundance log scale
-#     
-#     ##### REMOVAL #####################################
-#     # Removal submodel
-#     for (l in 1:L) {
-#     int[l] ~ dcat(pi.pa.c[site[l], visit[l], yr[l], ]) # removal class frequencies
-#     } # L
-#     
-#     for (i in 1:nsites) {
-#     for (j in 1:nvisits) {
-#     for (t in 1:YR) {
-#     for (r in 1:R){
-#     pi.pa[i,j,t,r] <- p.a[i,j,t]*pow(1-p.a[i,j,t], (r-1))
-#     pi.pa.c[i,j,t,r] <- pi.pa[i,j,t,r] / pcap[i,j,t]
-#     }  #R
-#     pcap[i,j,t] <- sum(pi.pa[i,j,t,1:R])
-#     
-#     # Detection submodels 
-#     pmarg[i,j,t] <-  pcap[i,j,t]  * pem[i,j,t]
-#     logit(p.a[i,j,t]) <- pa.beta # add covariates for availability (time-removal) here
-#     logit(pem[i,j,t]) <- pem.beta
-#     
-#     ##### POINT-LEVEL ABUNDANCE ###########################
-#     # Abundance/suitability submodels
-#     # N is the abundance which includes any GOEA using the site, ie emigrants
-#     nobs[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t]) 
-#     }}} # i j t 
-#     
-#     N[i,t] ~ dpois(lambda.eff[i,t])
-#     lambda.eff[i,t] <- lambda[i,t] * w.lam[i,t]
-#     w.lam[i,t] ~  dbern(psi[i,t])
-#     log(lambda[i,t]) <- lam.beta # add covariates for abundance
-#     logit(psi[i,t]) <- psi.beta # add covariates for habitat suitability
-#     # If not running set inits near psi=1 on logit scale. For example psi.beta=10
-#     
-#     ##### GOODNESS OF FIT #######################################
-#     nobs.fit[i,j,t] ~ dbin(pmarg[i,j,t], N[i,t]) # create new realization of model
-#     e.p[i,j,t] <- pmarg[i,j,t] * N[i,t] # original model prediction
-#     E.p[i,j,t] <- pow((nobs[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
-#     E.New.p[i,j,t]<- pow((nobs.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
-#     }} #YR #nsites 
-#     fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:YR])
-#     fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:YR])
-#     bayesp<-step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
-#     
-#     ##### DERIVED QUANTITIES ####################################
-#     for(t in 1:YR){
-#     Ntot[t] <- sum(N[1:nsites,t])
-#     # You can calculate density if you have a quantifiable area of survey
-#     # D[t] <- Ntot[t] / ((3.14*B*B*nsites)/10000)  # dens per ha
-#     } #YR
-#     } # End model
-#     ",file="./model-basic-ZIP.txt")
-# 
-# ###################
-# # CORRECTION
-# ###################
-# # add more bins across distance to better 
-# # approximate the integral
-# midpt.temp <- seq(0,50, length=21)
-# midpt2 <- c(1.25)
-# for (z in 2:length(midpt.temp)){ midpt2[z] <-  midpt2[z-1]+2.5 }
-# datalfoc$midpt <- midpt2 <- midpt2[-21]
-# datalfoc$delta <- rep(2.5, length(midpt2))
-# datalfoc$nD <- length(midpt2)
-# # END CORRECTION 
-# 
-# for (i in 1:19){ 
-#   spp <- spp.list.foc[i]
-#   spp.num<- which(dimnames(nobs)[[3]]==spp)
-#   datalfoc$nobs <- Nav <- apply(ab2[,1:2,,,spp], c(1,4),sum, na.rm=T)
-#   Mst <- apply(Nav, c(1), max, na.rm=T) +1
-#   
-#   inits <- function(){  list(
-#     N = Nav, p.psi.beta= 0.99, # setting psi near 1 helps model run
-#     p.pa.beta0= runif(1, 0.1, 0.9),
-#     pp.beta= runif(1, 5, 100)
-#   )  }
-#   
-#   params <- c("pa.beta", "p.pa.beta",
-#               "pem.beta", "p.pem.beta",
-#               "lam.beta", "psi.beta", "p.psi.beta",
-#               "Ntot", "D",  "bayesp"
-#   )
-#   
-#   # MCMC settings
-#   ni <- 2000  ;   nb <- 1000   ;   nt <- 1   ;   nc <- 3 ; na=100
-#   # Run JAGS
-#   out <- jags(datalfoc, inits=inits, params, 
-#                "./model-basic-ZIP.txt", 
-#               n.thin=nt, n.chains=nc, 
-#               n.burnin=nb, n.iter=ni, n.adapt=na,
-#               parallel = T, modules=c("glm")
-#               )
-#   
-#   fn<- paste( "./", spp, "_basic-ZIP.RData", sep="" )
-#   save(list= c("out"), file=fn)
-# }
-# 
+#********************
+#* Royle-Nichols Model
+#* Abundance from detection/nondeteciton data
+#**********************
+library (jagsUI)
+# load the wide data from GOEA White Sands project
+df.w <- read.csv("C:\\Users\\rolek.brian\\OneDrive - The Peregrine Fund\\Documents\\Projects\\GoldenEagleDensity-WhiteSands\\data\\surveydatawide.csv")
+datl <- list(y = df.w[, c("pres.j1", "pres.j2",    
+                             "pres.j3", "pres.j4" )],
+             nsites=nrow(df.w),
+             nvisits=4)
+
+             
+  cat("
+    model {
+    # p.beta: prob. of detection
+    # lam.beta: abundance (log-link scale, use exp function to backtransform)
+    ##### PRIORS ###############################################
+    lp.beta <- logit(p.beta)
+    p.beta ~ dbeta(1, 1)
+    lam.beta ~ dnorm(0, 0.01)
+
+    # Royle Nichols model
+    # observation model
+      for (i in 1:nsites) {
+        for (j in 1:nvisits) {
+          y[i,j] ~ dbern(Pstar[i,j])
+          Pstar[i,j] <- 1-(1-p[i,j])^N[i]
+          logit(p[i,j]) <- lp.beta
+    } # j
+    # abundance model
+        N[i] ~ dpois(lambda[i])
+        log(lambda[i]) <- lam.beta
+    } # i
+    ##### DERIVED QUANTITIES ####################################
+    Ntot <- sum(N[1:nsites])
+    } # End model
+    ",file="./model-Royle-Nichols.txt")
+  
+  inits <- function(){  list(
+   # N = apply(no, c(1,3), max, na.rm=T),
+    lam.beta = 0,
+    p.beta= runif(1, 0.01, 0.99)
+  )  }
+  
+  params <- c("p.beta", "lp.beta",
+              "lam.beta",  
+              "Ntot"
+  )
+  
+  # MCMC settings
+  ni <- 10000  ;   nb <- 5000   ;   nt <- 5   ;   nc <- 3 ; na=100
+  # Run JAGS
+  out <- jags(datl, inits=inits, params, 
+              "./model-Royle-Nichols.txt", 
+              n.thin=nt, n.chains=nc, 
+              n.burnin=nb, n.iter=ni, n.adapt=na,
+              parallel = T, modules=c("glm")
+  )
+  
+  fn<- paste( "./", spp, "_Royle-Nichols.RData", sep="" )
+  save(list= c("out"), file=fn)
+  
