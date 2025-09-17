@@ -186,10 +186,35 @@ cat("
 library (jagsUI)
 # load the wide data from GOEA White Sands project
 df.w <- read.csv("C:\\Users\\rolek.brian\\OneDrive - The Peregrine Fund\\Documents\\Projects\\GoldenEagleDensity-WhiteSands\\data\\surveydatawide.csv")
+
+# create a covariate for number of surveyors
+# This uses sum to zero contrasts, 
+# allowing the intercept to represent the overall 
+# mean. So rather than a binary covariate
+# as 0 and 1, you use -1 and 1.
+num_surveyors <- ifelse(df.w[, c("obs.j1", "obs.j2", "obs.j3", "obs.j4")]=="single", -1, 1 )
+# impute NAs as single surveyor so model works 
+num_surveyors[is.na(num_surveyors)] <- -1
+
+# create a covariate for ordinal day
+oday <- df.w[, c("doy.j1", "doy.j2", "doy.j3", "doy.j4")] |> as.matrix()
+# centered and scaled to help with convergence
+oday.sc <- (oday-mean(oday, na.rm=T))/sd(oday, na.rm=T)
+# impute the mean (zero) for missing values
+oday.sc[is.na(oday.sc)] <- 0
+# setup random effect of territory
+df.w$site <- as.numeric(as.factor(df.w$territory))
+
 datl <- list(y = df.w[, c("pres.j1", "pres.j2",    
                              "pres.j3", "pres.j4" )],
-             nsites=nrow(df.w),
-             nvisits=4)
+             ndata = nrow(df.w),
+             year = df.w$survey_year-2014,
+             site = df.w$site,
+             num_surveyors = num_surveyors,
+             oday.sc = oday.sc,
+             nvisits = 4,
+             nsites = table(df.w$site) |> length(),
+             nyears = table(datl$year) |> length())
 
              
   cat("
@@ -197,48 +222,98 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
     # p.beta: prob. of detection
     # lam.beta: abundance (log-link scale, use exp function to backtransform)
     ##### PRIORS ###############################################
-    lp.beta <- logit(p.beta)
-    p.beta ~ dbeta(1, 1)
-    lam.beta ~ dnorm(0, 0.01)
 
+    lp.beta <- logit(p.beta)
+    p.beta ~ dbeta(1,1)
+    lam.beta ~ dnorm(0, 0.01)
+    beta1 ~ dnorm(0, 0.01)
+    beta2 ~ dnorm(0, 0.01)
+    sd.year ~ dnorm(0, 1/(2*2))T(0,) # translates tau to sd=2
+    sd.site ~ dnorm(0, 1/(2*2))T(0,)
+    
     # Royle Nichols model
     # observation model
-      for (i in 1:nsites) {
+      for (i in 1:ndata) {
         for (j in 1:nvisits) {
           y[i,j] ~ dbern(Pstar[i,j])
           Pstar[i,j] <- 1-(1-p[i,j])^N[i]
-          logit(p[i,j]) <- lp.beta
+          logit(p[i,j]) <- lp.beta + 
+                            beta1*num_surveyors[i,j] +
+                            beta2*oday.sc[i,j]
     } # j
     # abundance model
         N[i] ~ dpois(lambda[i])
-        log(lambda[i]) <- lam.beta
+        log(lambda[i]) <- lam.beta + 
+                          eps[ year[i] ] +
+                          eta[ site[i] ]
     } # i
+    # random effect for year
+    for (t in 1:nyears){
+    eps[t] ~ dnorm(0, sd.year)
+    }
+    for (s in 1:nsites){
+    eta[s] ~ dnorm(0, sd.site)
+    }
     ##### DERIVED QUANTITIES ####################################
     Ntot <- sum(N[1:nsites])
     } # End model
     ",file="./model-Royle-Nichols.txt")
   
   inits <- function(){  list(
-   # N = apply(no, c(1,3), max, na.rm=T),
-    lam.beta = 0,
-    p.beta= runif(1, 0.01, 0.99)
+    # inits for lam.beta and p.beta
+    # taken from run of model with 
+    # no covariates
+    # to help run
+    lam.beta = 1.168, 
+    p.beta= 0.388,
+    beta1= 0, 
+    beta2= 0,
+    sd.year=runif(1, 0.01, 0.1),
+    sd.site=runif(1, 0.01, 0.1)
   )  }
   
   params <- c("p.beta", "lp.beta",
-              "lam.beta",  
-              "Ntot"
+              "lam.beta", 
+              "beta1", "beta2",
+              "sd.year", "sd.site",
+              "eps", "eta",
+              "Ntot",
+              "N"
   )
   
   # MCMC settings
-  ni <- 10000  ;   nb <- 5000   ;   nt <- 5   ;   nc <- 3 ; na=100
+  ni <- 50000  ;   nb <- 25000   ;   nt <- 25   ;   nc <- 3 ; na=100
   # Run JAGS
   out <- jags(datl, inits=inits, params, 
               "./model-Royle-Nichols.txt", 
               n.thin=nt, n.chains=nc, 
               n.burnin=nb, n.iter=ni, n.adapt=na,
-              parallel = T, modules=c("glm")
-  )
+              parallel = T, modules=c("glm"))
   
+  params2 <- c("p.beta", 
+              "lam.beta", 
+              "beta1", "beta2",
+              "sd.year", "sd.site"
+  )
+  traceplot(out, params2)
+  
+
+# Postprocess to estimate abundance
+# at each territory, for each year
+N <- array(NA, dim=list(datl$nsite, 
+                        datl$nyear, 
+                        length(out$sims.list$lam.beta)))
+for (t in 1:datl$nyear){
+  for (s in 1:datl$nsite){
+  N[s, t, ] <- exp(out$sims.list$lam.beta + 
+             out$sims.list$eps[,t] +
+             out$sims.list$eta[,s]) 
+  }
+}
+
+N.mean <- apply(N, c(1,2), mean) 
+N.hdis <- apply(N, c(1,2), HDInterval::hdi)
+
   fn<- paste( "./", spp, "_Royle-Nichols.RData", sep="" )
   save(list= c("out"), file=fn)
   
