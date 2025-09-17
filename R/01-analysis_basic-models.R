@@ -254,8 +254,6 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
     for (s in 1:nsites){
     eta[s] ~ dnorm(0, sd.site)
     }
-    ##### DERIVED QUANTITIES ####################################
-    Ntot <- sum(N[1:nsites])
     } # End model
     ",file="./model-Royle-Nichols.txt")
   
@@ -277,7 +275,6 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
               "beta1", "beta2",
               "sd.year", "sd.site",
               "eps", "eta",
-              "Ntot",
               "N"
   )
   
@@ -311,9 +308,10 @@ for (t in 1:datl$nyear){
   }
 }
 
-N.mean <- apply(N, c(1,2), mean) 
+N.mean <- apply(N, c(1,2), mean)
+hist(N.mean)
 N.hdis <- apply(N, c(1,2), HDInterval::hdi)
 
-  fn<- paste( "./", spp, "_Royle-Nichols.RData", sep="" )
-  save(list= c("out"), file=fn)
+fn<- paste( "./outputs/Royle-Nichols.RData", sep="" )
+save(list= c("out"), file=fn)
   
