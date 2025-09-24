@@ -11,6 +11,7 @@
     beta2 ~ dnorm(0, 0.01)
     sd.year ~ dnorm(0, 1/(2*2))T(0,) # translates tau to sd=2
     sd.site ~ dnorm(0, 1/(2*2))T(0,)
+    sd.both ~ dnorm(0, 1/(2*2))T(0,)
     
     # Royle Nichols model
     # observation model
@@ -26,7 +27,8 @@
         N[i] ~ dpois(lambda[i])
         log(lambda[i]) <- lam.beta + 
                           eps[ year[i] ] +
-                          eta[ site[i] ]
+                          eta[ site[i] ] +
+                          nu[ year[i], site[i]]
     } # i
     # random effect for year
     for (t in 1:nyears){
@@ -34,8 +36,8 @@
     }
     for (s in 1:nsites){
     eta[s] ~ dnorm(0, sd.site)
-    }
-    ##### DERIVED QUANTITIES ####################################
-    Ntot <- sum(N[1:nsites])
+        for (t in 1:nyears){
+          nu[ t, s] ~ dnorm(0, sd.both)
+    }}
     } # End model
     

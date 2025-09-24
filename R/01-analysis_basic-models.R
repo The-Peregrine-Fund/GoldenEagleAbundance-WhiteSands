@@ -1,13 +1,4 @@
-############################
-# Supplemental materials for:
-# B. W. Rolek, D. J. Harrison, D. W. Linden,  C. S. Loftin, 
-# P. B. Wood. 2021. Associations among breeding 
-# conifer-associated birds, forestry treatments, 
-# years-since-harvest, and vegetation characteristics in 
-# regenerating stands. 
-#############################
-## ---- basic Poisson --------
-#############################################
+
 # This file is not needed to replicate analyses.
 # We provide the simplest version of the model used
 # as a template for other studies
@@ -16,81 +7,135 @@
 # JAGS 4.3.0 
 # R version 4.0.2 (2020-06-22) -- "Taking Off Again"
 library (jagsUI) # v1.5.1
-library (abind)
-load ("./data/example-data.Rdata")
-# data manipulation
-# TOM YOU CAN PROBABLY IGNORE THIS PART
-# BUT LOOK AT THE FINAL DATA LIST 
-datalfoc$SPP <- length(spp.list.foc)
-yr <- array(NA, dim=c(dim (ab)[1], 9) )
-yr[,1:3] <- 1; yr[,4:6] <- 2; yr[,7:9] <- 3
-datalfoc$yr <- yr
-s.year <- array(NA, dim=c(114, 9))
-s.year[,1:3] <- 1; s.year[,4:6] <- 2; s.year[,7:9] <- 3
-datalfoc$s.year <- s.year
+# load the wide data from GOEA White Sands project
+#df.w <- read.csv("C:\\Users\\rolek.brian\\OneDrive - The Peregrine Fund\\Documents\\Projects\\GoldenEagleDensity-WhiteSands\\data\\surveydatawide.csv")
+df.ab <- read.csv("C:\\Users\\rolek.brian\\OneDrive - The Peregrine Fund\\Documents\\Projects\\GoldenEagleDensity-WhiteSands\\data\\abundancenmixclean.csv")
 
-# Add visit and year
-# for removal model
-datalfoc$visit <- ifelse(datalfoc$yr_rot %in% c(1,4,7), 1, 
-                         ifelse(datalfoc$yr_rot %in% c(2,5,8), 2,
-                                3))
-datalfoc$year <- ifelse(datalfoc$yr_rot %in% c(1,2,3), 1, 
-                        ifelse(datalfoc$yr_rot %in% c(4,5,6), 2,
-                               3))
+counts <- with(df.ab, tapply(count, list(site, rotation, survey_year), sum, na.rm=T) )
+tri <- with(df.ab, tapply(tri, list(site), mean ) )
+obs <- with(df.ab, tapply(multi_observer, list(site, rotation, survey_year), sum) )
+day <- with(df.ab, tapply(survey_day, list(site, rotation, survey_year), mean) )
 
-nobs <- datalfoc$nobs
-int <- datalfoc$int
-site <- datalfoc$site
-yr_rot <- datalfoc$yr_rot
-year <- datalfoc$year
-visit <- datalfoc$visit
-
-datalfoc$nvisit <- 3
-datalfoc$YR <- 3
-# print sample sizes 
-apply(ab2[,1:2,,,dimnames(ab2)[[5]] %in% spp.list.foc], c(5), sum, na.rm=T)
-
-# Subset data to species=Bay breasted Warbler
-spp <- spp.list.foc[1]
-spp.num<- which(dimnames(nobs)[[3]]==spp)
-Nav <- apply(ab2[,1:2,,,spp], c(1,4), sum, na.rm=T)
-
-no <- abind(Nav[, c(1,2,3)],
-            Nav[, c(4,5,6)],
-            Nav[, c(7,8,9)],
-            along=3 )
-dimnames(no) <- list(site= dimnames(Nav)[[1]],                       
-                     visitnum= 1:3,
-                     year= 2013:2015)
-
-#***********************
-#* Run the above code but
-#* START HERE TOM
-#* These are all the data needed
-#* to run the model. You can add covariates. 
-#* See comments about dimensions for each data
-datalist <- list()
-datalist$nobs <- no # an array of 3 dims: nsites x nvisits x nyears
-# the following are all nL in length, ie the number of detections
-datalist$int <- datalfoc$int[datalfoc$species==spp.num] # the time interval of first detection for each eagle observed during a count
-datalist$site <- datalfoc$site[datalfoc$species==spp.num] # the site of detection for each individual detection
-datalist$visit <- datalfoc$visit[datalfoc$species==spp.num] # the visit of detection
-datalist$year <- datalfoc$year[datalfoc$species==spp.num] # the year detected
-# dimensions
-datalist$nL <- length(datalfoc$species[datalfoc$species==spp.num]) # the number of detections
-datalist$nsites <- datalfoc$nsites
-datalist$nyr <- 3
-datalist$nvisits <- 3
-datalist$nR <- datalfoc$R
-# Examine full dataset
-str(datalist)
-# These two (below) should be equal to the number of detections
-# and each other. Not quite the case here.
-# But do better than I did! 
-length(datalist$int)
-sum(datalist$nobs, na.rm=T)
+datl <- list(counts = counts[,1:5,3:5],
+             mult_surveyors = ifelse(obs[,1:5,3:5]==1, 1, -1 ),
+             day.sc = ((day-mean(day, na.rm=T))/sd(day, na.rm=T))[,1:5,3:5],
+             tri.sc= (tri-mean(tri, na.rm=T))/sd(tri, na.rm=T),
+             nvisits = 5,
+             nyears = 3, 
+             nsites = nrow(counts))
+datl$day.sc[is.na(datl$day.sc)] <- 0
+datl$tri.sc[is.na(datl$tri.sc)] <- 0
+datl$mult_surveyors[is.na(datl$mult_surveyors)] <- -1
 ####################################
-# (1) basic Poisson model
+# (1) N-mixture model for abundance
+# repeated survey 
+####################################
+cat("
+    model {
+    # pbeta: prob. detection
+    # lam.beta: abundance (log-link scale, use exp function to backtransform)
+    ##### PRIORS ###############################################
+    lpbeta <- logit(pbeta) # backtransform to probability pbeta
+    pbeta ~ dbeta(1, 1) # probability of emigration
+    lam.beta ~ dnorm(0, 0.01) # average abundance on log scale
+    beta1 ~ dnorm(0, 0.01) # coefficient from num_surveyors
+    beta2 ~ dnorm(0, 0.01) # coefficient from day of year
+    beta3 ~ dnorm(0, 0.01) # coefficient from topographical roughness index
+    sd.site.p ~ dnorm(0, 1/(2*2))T(0,) # random effect for site
+    sd.site.N ~ dnorm(0, 1/(2*2))T(0,) # random effect for site
+    
+    for (i in 1:nsites) {
+    for (t in 1:nyears) {
+    # Abundance (inserted here to reduce number of loops)
+    N[i,t] ~ dpois(lambda[i,t])
+    log(lambda[i,t]) <- lam.beta + # average abundance
+                          beta3*tri.sc[i] + # tri effect
+                          eps[i] # random effect for site
+    
+    # Separate detection and abundance    
+    for (j in 1:nvisits) {
+    counts[i,j,t] ~ dbin(p[i,j,t], N[i,t])
+    # Detection submodel
+    logit(p[i,j,t]) <- lpbeta + # average detection
+                     beta1*mult_surveyors[i,j,t] + # mult observer effect
+                     beta2*day.sc[i,j,t] + # day effect
+                     eta[i] # random effect for site
+    }}}
+    # random effects for site
+    for (i in 1:nsites){ 
+    eta[i] ~ dnorm(0, sd.site.p) 
+    eps[i] ~ dnorm(0, sd.site.N)
+    }
+    
+    ##### GOODNESS OF FIT #######################################
+    for (i in 1:nsites) {
+    for (t in 1:nyears) {
+    for (j in 1:nvisits) {
+    counts.fit[i,j,t] ~ dbin(p[i,j,t], N[i,t]) # create new realization of model
+    e.p[i,j,t] <- p[i,j,t] * N[i,t] # original model prediction
+    E.p[i,j,t] <- pow((counts[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    E.New.p[i,j,t]<- pow((counts.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    }}} #nyr #nsites
+    fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:nyears])
+    fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:nyears])
+    bayesp <- step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
+    } # End model
+    ",file="./N-mix-repeatedsurveys.txt")
+
+# We need good initial values for 
+# N to get the model running, so
+# we estimate it from the data.
+N.inits <- apply(datl$counts, c(1, 3), max, na.rm=T) 
+N.inits[N.inits=="-Inf"] <- 2
+
+# Create afunction to provide initial values
+# for the model. Each chain will randomly 
+# generate initial values.
+inits <- function(){  list(
+  N = N.inits,
+  lam.beta = mean(datl$counts, na.rm=T) |> log(),
+  pbeta= runif(1, 0.01, 0.99),
+  beta1=runif(1,-1,1), 
+  beta2=runif(1,-1,1),
+  beta3=runif(1,-1,1),
+  sd.site.p=runif(1),
+  sd.site.N=runif(1)
+)  }
+
+params <- c("pbeta", "lpbeta",
+            "lam.beta",
+            "beta1", "beta2", "beta3",
+            "bayesp",
+            "sd.site.p", "sd.site.N",
+             "eta", "eps", "N"
+)
+
+# MCMC settings
+ni <- 300000  ;   nb <- 200000   ;   nt <- 100   ;   nc <- 3 ; na=1000
+#ni <- 200  ;   nb <- 100   ;   nt <- 1   ;   nc <- 3 ; na=100
+# Run JAGS
+out <- jags(datl, inits=inits, params, 
+            "./N-mix-repeatedsurveys.txt", 
+            n.thin=nt, n.chains=nc, 
+            n.burnin=nb, n.iter=ni, n.adapt=na,
+            parallel = T, modules=c("glm")
+)
+
+traceplot(out, c("pbeta","lambda", 
+                 "beta1", "beta2", "beta3",
+                 "sd.site.p", "sd.site.N") )
+
+# View average abundance ests at sites
+Nmn<- apply(out$sims.list$N, c(2,3), mean)
+hist(Nmn)
+
+fn<- paste( "./outputs/N-mix-repeatedsurveys.RData", sep="" )
+save(list= c("out"), file=fn)
+
+
+####################################
+# (2) N-mixture model for abundance
+# removal/ repeated survey 
 ####################################
 cat("
     model {
@@ -176,6 +221,7 @@ cat("
               parallel = T, modules=c("glm")
   )
   
+  
   fn<- paste( "./", spp, "_basic-pois.RData", sep="" )
   save(list= c("out"), file=fn)
 
@@ -183,40 +229,6 @@ cat("
 #* Royle-Nichols Model
 #* Abundance from detection/nondeteciton data
 #**********************
-library (jagsUI)
-# load the wide data from GOEA White Sands project
-df.w <- read.csv("C:\\Users\\rolek.brian\\OneDrive - The Peregrine Fund\\Documents\\Projects\\GoldenEagleDensity-WhiteSands\\data\\surveydatawide.csv")
-
-# create a covariate for number of surveyors
-# This uses sum to zero contrasts, 
-# allowing the intercept to represent the overall 
-# mean. So rather than a binary covariate
-# as 0 and 1, you use -1 and 1.
-num_surveyors <- ifelse(df.w[, c("obs.j1", "obs.j2", "obs.j3", "obs.j4")]=="single", -1, 1 )
-# impute NAs as single surveyor so model works 
-num_surveyors[is.na(num_surveyors)] <- -1
-
-# create a covariate for ordinal day
-oday <- df.w[, c("doy.j1", "doy.j2", "doy.j3", "doy.j4")] |> as.matrix()
-# centered and scaled to help with convergence
-oday.sc <- (oday-mean(oday, na.rm=T))/sd(oday, na.rm=T)
-# impute the mean (zero) for missing values
-oday.sc[is.na(oday.sc)] <- 0
-# setup random effect of territory
-df.w$site <- as.numeric(as.factor(df.w$territory))
-
-datl <- list(y = df.w[, c("pres.j1", "pres.j2",    
-                             "pres.j3", "pres.j4" )],
-             ndata = nrow(df.w),
-             year = df.w$survey_year-2014,
-             site = df.w$site,
-             num_surveyors = num_surveyors,
-             oday.sc = oday.sc,
-             nvisits = 4,
-             nsites = table(df.w$site) |> length(),
-             nyears = table(datl$year) |> length())
-
-             
   cat("
     model {
     # p.beta: prob. of detection
@@ -230,6 +242,7 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
     beta2 ~ dnorm(0, 0.01)
     sd.year ~ dnorm(0, 1/(2*2))T(0,) # translates tau to sd=2
     sd.site ~ dnorm(0, 1/(2*2))T(0,)
+    sd.both ~ dnorm(0, 1/(2*2))T(0,)
     
     # Royle Nichols model
     # observation model
@@ -245,7 +258,8 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
         N[i] ~ dpois(lambda[i])
         log(lambda[i]) <- lam.beta + 
                           eps[ year[i] ] +
-                          eta[ site[i] ]
+                          eta[ site[i] ] +
+                          nu[ year[i], site[i]]
     } # i
     # random effect for year
     for (t in 1:nyears){
@@ -253,7 +267,9 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
     }
     for (s in 1:nsites){
     eta[s] ~ dnorm(0, sd.site)
-    }
+        for (t in 1:nyears){
+          nu[ t, s] ~ dnorm(0, sd.both)
+    }}
     } # End model
     ",file="./model-Royle-Nichols.txt")
   
@@ -267,19 +283,19 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
     beta1= 0, 
     beta2= 0,
     sd.year=runif(1, 0.01, 0.1),
-    sd.site=runif(1, 0.01, 0.1)
+    sd.site=runif(1, 0.01, 0.1),
+    sd.both=runif(1, 0.01, 0.1)
   )  }
   
   params <- c("p.beta", "lp.beta",
               "lam.beta", 
               "beta1", "beta2",
-              "sd.year", "sd.site",
-              "eps", "eta",
-              "N"
+              "sd.year", "sd.site", "sd.both",
+              "eps", "eta", "nu"
   )
   
   # MCMC settings
-  ni <- 50000  ;   nb <- 25000   ;   nt <- 25   ;   nc <- 3 ; na=100
+  ni <- 100000  ;   nb <- 50000   ;   nt <- 100   ;   nc <- 3 ; na=1000
   # Run JAGS
   out <- jags(datl, inits=inits, params, 
               "./model-Royle-Nichols.txt", 
@@ -290,7 +306,7 @@ datl <- list(y = df.w[, c("pres.j1", "pres.j2",
   params2 <- c("p.beta", 
               "lam.beta", 
               "beta1", "beta2",
-              "sd.year", "sd.site"
+              "sd.year", "sd.site", "sd.both"
   )
   traceplot(out, params2)
   
@@ -304,7 +320,8 @@ for (t in 1:datl$nyear){
   for (s in 1:datl$nsite){
   N[s, t, ] <- exp(out$sims.list$lam.beta + 
              out$sims.list$eps[,t] +
-             out$sims.list$eta[,s]) 
+             out$sims.list$eta[,s] +
+             out$sims.list$nu[,t,s]) 
   }
 }
 
