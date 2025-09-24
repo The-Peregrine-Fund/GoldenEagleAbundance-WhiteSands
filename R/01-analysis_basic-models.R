@@ -37,7 +37,9 @@ cat("
     ##### PRIORS ###############################################
     lpbeta <- logit(pbeta) # backtransform to probability pbeta
     pbeta ~ dbeta(1, 1) # probability of emigration
-    lam.beta ~ dnorm(0, 0.01) # average abundance on log scale
+    for (t in 1:nyears){
+        lam.beta[t] ~ dnorm(0, 0.01) # average abundance on log scale
+    }
     beta1 ~ dnorm(0, 0.01) # coefficient from num_surveyors
     beta2 ~ dnorm(0, 0.01) # coefficient from day of year
     beta3 ~ dnorm(0, 0.01) # coefficient from topographical roughness index
@@ -48,7 +50,7 @@ cat("
     for (t in 1:nyears) {
     # Abundance (inserted here to reduce number of loops)
     N[i,t] ~ dpois(lambda[i,t])
-    log(lambda[i,t]) <- lam.beta + # average abundance
+    log(lambda[i,t]) <- lam.beta[t] + # average abundance varies by year
                           beta3*tri.sc[i] + # tri effect
                           eps[i] # random effect for site
     
@@ -71,10 +73,10 @@ cat("
     for (i in 1:nsites) {
     for (t in 1:nyears) {
     for (j in 1:nvisits) {
-    counts.fit[i,j,t] ~ dbin(p[i,j,t], N[i,t]) # create new realization of model
+    counts.fit[i,j,t] ~ dbin(p[i,j,t], N[i,t]) # simulate new data realization from the model
     e.p[i,j,t] <- p[i,j,t] * N[i,t] # original model prediction
-    E.p[i,j,t] <- pow((counts[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
-    E.New.p[i,j,t]<- pow((counts.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    E.p[i,j,t] <- pow((counts[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5) # calculate discrepancy between data and e.p
+    E.New.p[i,j,t]<- pow((counts.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5) # calculate discrepancy between simulations and e.p
     }}} #nyr #nsites
     fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:nyears])
     fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:nyears])
@@ -93,7 +95,7 @@ N.inits[N.inits=="-Inf"] <- 2
 # generate initial values.
 inits <- function(){  list(
   N = N.inits,
-  lam.beta = mean(datl$counts, na.rm=T) |> log(),
+  lam.beta = rep(mean(datl$counts, na.rm=T) |> log(),3),
   pbeta= runif(1, 0.01, 0.99),
   beta1=runif(1,-1,1), 
   beta2=runif(1,-1,1),
@@ -105,7 +107,7 @@ inits <- function(){  list(
 params <- c("pbeta", "lpbeta",
             "lam.beta",
             "beta1", "beta2", "beta3",
-            "bayesp",
+            "bayesp", # goodness of fit measure, should be near 0.5
             "sd.site.p", "sd.site.N",
              "eta", "eps", "N"
 )
@@ -127,7 +129,7 @@ traceplot(out, c("pbeta","lambda",
 
 # View average abundance ests at sites
 Nmn<- apply(out$sims.list$N, c(2,3), mean)
-hist(Nmn)
+hist(Nmn, main="Histogram of model-predicted abundance")
 
 fn<- paste( "./outputs/N-mix-repeatedsurveys.RData", sep="" )
 save(list= c("out"), file=fn)

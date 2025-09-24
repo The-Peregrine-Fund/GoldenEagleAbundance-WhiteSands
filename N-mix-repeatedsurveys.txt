@@ -5,7 +5,9 @@
     ##### PRIORS ###############################################
     lpbeta <- logit(pbeta) # backtransform to probability pbeta
     pbeta ~ dbeta(1, 1) # probability of emigration
-    lam.beta ~ dnorm(0, 0.01) # average abundance on log scale
+    for (t in 1:nyears){
+        lam.beta[t] ~ dnorm(0, 0.01) # average abundance on log scale
+    }
     beta1 ~ dnorm(0, 0.01) # coefficient from num_surveyors
     beta2 ~ dnorm(0, 0.01) # coefficient from day of year
     beta3 ~ dnorm(0, 0.01) # coefficient from topographical roughness index
@@ -16,36 +18,36 @@
     for (t in 1:nyears) {
     # Abundance (inserted here to reduce number of loops)
     N[i,t] ~ dpois(lambda[i,t])
-    log(lambda[i,t]) <- lam.beta + 
-                          beta3*tri.sc[i] +
-                          eps[i]
+    log(lambda[i,t]) <- lam.beta[t] + # average abundance
+                          beta3*tri.sc[i] + # tri effect
+                          eps[i] # random effect for site
     
     # Separate detection and abundance    
     for (j in 1:nvisits) {
     counts[i,j,t] ~ dbin(p[i,j,t], N[i,t])
     # Detection submodel
-    logit(p[i,j,t]) <- lpbeta + 
-                     beta1*mult_surveyors[i,j,t] +
-                     beta2*day.sc[i,j,t] +
-                     eta[i] 
+    logit(p[i,j,t]) <- lpbeta + # average detection
+                     beta1*mult_surveyors[i,j,t] + # mult observer effect
+                     beta2*day.sc[i,j,t] + # day effect
+                     eta[i] # random effect for site
     }}}
-    # random effect for site
+    # random effects for site
     for (i in 1:nsites){ 
     eta[i] ~ dnorm(0, sd.site.p) 
     eps[i] ~ dnorm(0, sd.site.N)
     }
     
     ##### GOODNESS OF FIT #######################################
-    # for (i in 1:nsites) {
-    # for (t in 1:nyears) {
-    # for (j in 1:nvisits) {
-    # counts.fit[i,j,t] ~ dbin(p[i,j,t], N[i,t]) # create new realization of model
-    # e.p[i,j,t] <- p[i,j,t] * N[i,t] # original model prediction
-    # E.p[i,j,t] <- pow((counts[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
-    # E.New.p[i,j,t]<- pow((counts.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
-    # }}} #nyr #nsites
-    # fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:nyears])
-    # fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:nyears])
-    # bayesp <- step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
+    for (i in 1:nsites) {
+    for (t in 1:nyears) {
+    for (j in 1:nvisits) {
+    counts.fit[i,j,t] ~ dbin(p[i,j,t], N[i,t]) # create new realization of model
+    e.p[i,j,t] <- p[i,j,t] * N[i,t] # original model prediction
+    E.p[i,j,t] <- pow((counts[i,j,t]- e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    E.New.p[i,j,t]<- pow((counts.fit[i,j,t]-e.p[i,j,t]),2)/(e.p[i,j,t]+0.5)
+    }}} #nyr #nsites
+    fit.p <- sum(E.p[1:nsites, 1:nvisits, 1:nyears])
+    fit.new.p <- sum(E.New.p[1:nsites, 1:nvisits, 1:nyears])
+    bayesp <- step(fit.new.p-fit.p) # Bayesian p-value for availability model. =0.5 is good fit, near 0 or 1 is poor fit
     } # End model
     
